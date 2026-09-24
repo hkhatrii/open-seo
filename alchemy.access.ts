@@ -64,6 +64,8 @@ export const emailAccessGate = (options: {
   policyName: string;
   applicationName: string;
   domain: string;
+  /** Further hostnames (e.g. a custom domain) gated by the same application. */
+  extraDomains?: string[];
   emails: string[];
 }) =>
   Effect.gen(function* () {
@@ -72,10 +74,21 @@ export const emailAccessGate = (options: {
       decision: "allow",
       include: options.emails.map((email) => ({ email: { email } })),
     });
+    const extraDomains = options.extraDomains ?? [];
     return yield* Cloudflare.Access.Application(options.applicationId, {
       type: "self_hosted",
       name: options.applicationName,
       domain: options.domain,
+      // One application (one policy AUD) for every hostname, so the worker's
+      // JWT check accepts logins from any of them.
+      ...(extraDomains.length > 0
+        ? {
+            destinations: [options.domain, ...extraDomains].map((uri) => ({
+              type: "public" as const,
+              uri,
+            })),
+          }
+        : {}),
       policies: [allow.policyId],
     });
   });
