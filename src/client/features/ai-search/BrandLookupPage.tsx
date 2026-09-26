@@ -20,6 +20,7 @@ import { BrandLookupHistorySection } from "@/client/features/ai-search/component
 import { AiSearchLoadingState } from "@/client/features/ai-search/components/AiSearchLoadingState";
 import { AiSearchPaidPlanGate } from "@/client/features/ai-search/components/AiSearchPaidPlanGate";
 import { useBrandLookupSearchHistory } from "@/client/hooks/useBrandLookupSearchHistory";
+import { useProjectMarket } from "@/client/features/projects/useProjectMarket";
 import {
   BRAND_LOOKUP_MAX_INPUT_LENGTH,
   parseCompetitorList,
@@ -116,6 +117,10 @@ function BrandLookupPageInner({
   const scopeDisabledReason =
     query.trim() !== "" && !scopeTarget ? KEYWORD_SCOPE_REASON : undefined;
 
+  // Look up AI mentions in the project's own market (ChatGPT data is US-only;
+  // the server pins it to US/en and keeps it out of non-US totals).
+  const projectMarket = useProjectMarket(projectId);
+
   const lookupQuery = useQuery({
     queryKey: [
       "brand-lookup",
@@ -123,6 +128,8 @@ function BrandLookupPageInner({
       trimmedInitialQuery,
       competitorKey,
       initialScope ?? "",
+      projectMarket?.locationCode,
+      projectMarket?.languageCode,
     ],
     queryFn: () =>
       lookupBrand({
@@ -131,14 +138,14 @@ function BrandLookupPageInner({
           query: trimmedInitialQuery,
           competitors: initialCompetitors,
           scope: initialScope,
-          locationCode: 2840,
-          languageCode: "en",
+          locationCode: projectMarket?.locationCode ?? 2840,
+          languageCode: projectMarket?.languageCode ?? "en",
         },
       }),
     // Client-side gate is a UX optimization only; the paywall is enforced
     // server-side (lookupBrand → assertPaidPlan) before any DataForSEO spend,
     // so a stale free-plan window here just yields a rejected request, not cost.
-    enabled: hasActiveQuery && !planGate.isFreePlan,
+    enabled: hasActiveQuery && !planGate.isFreePlan && !!projectMarket,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
