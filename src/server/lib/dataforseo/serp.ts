@@ -123,16 +123,64 @@ export interface RankCheckResult {
   serpFeatures: string[];
 }
 
+/**
+ * Google now wraps organic result links in google.com/goto?url=... redirects,
+ * and DataForSEO reports those items with domain "google.com". The real site
+ * is still shown in the breadcrumb ("https://www.example.com › path › page"),
+ * so fall back to it when the reported link is a Google redirect.
+ */
+function resolveOrganicTarget(
+  item: SerpLiveItem,
+): { domain: string; url: string | null } | null {
+  const domain = item.domain ?? null;
+  const url = item.url ?? null;
+  const isGoogleRedirect =
+    !!url && /^https?:\/\/(www\.)?google\.[a-z.]+\/(goto|url)\?/i.test(url);
+  if (domain && !isGoogleRedirect) return { domain, url };
+  const crumb = item.breadcrumb?.trim();
+  if (crumb) {
+    const parts = crumb
+      .split("\u203a")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const head = parts[0] ?? "";
+    try {
+      const origin = new URL(
+        /^https?:\/\//i.test(head) ? head : `https://${head}`,
+      );
+      const path = parts
+        .slice(1)
+        .filter((p) => p !== "..." && p !== "\u2026")
+        .join("/");
+      return {
+        domain: origin.hostname,
+        url: `${origin.origin}${path ? `/${path}` : "/"}`,
+      };
+    } catch {
+      // fall through
+    }
+  }
+  return domain ? { domain, url } : null;
+}
+
 function buildRankCheckResult(
   input: { keywordId: string; keyword: string; targetDomain: string },
   items: SerpLiveItem[],
 ): RankCheckResult {
   const target = input.targetDomain.toLowerCase();
-  const organicMatch = items.find((item) => {
-    if (item.type !== "organic" || item.domain == null) return false;
-    const domain = item.domain.toLowerCase();
-    return domain === target || domain.endsWith(`.${target}`);
-  });
+  let organicMatch: SerpLiveItem | undefined;
+  let matchedUrl: string | null = null;
+  for (const item of items) {
+    if (item.type !== "organic") continue;
+    const resolved = resolveOrganicTarget(item);
+    if (!resolved) continue;
+    const domain = resolved.domain.toLowerCase();
+    if (domain === target || domain.endsWith(`.${target}`)) {
+      organicMatch = item;
+      matchedUrl = resolved.url;
+      break;
+    }
+  }
 
   return {
     keywordId: input.keywordId,
@@ -143,7 +191,7 @@ function buildRankCheckResult(
     position: organicMatch
       ? (organicMatch.rank_group ?? organicMatch.rank_absolute ?? null)
       : null,
-    url: organicMatch?.url ?? null,
+    url: matchedUrl,
     serpFeatures: [...new Set(items.map((item) => item.type).filter(Boolean))],
   };
 }

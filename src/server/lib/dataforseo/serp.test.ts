@@ -212,4 +212,60 @@ describe("rank check task queue", () => {
       },
     });
   });
+
+  it("matches the target via breadcrumb when Google wraps links in /goto redirects", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        status_code: 20000,
+        tasks: [
+          {
+            id: "task-b",
+            status_code: 20000,
+            cost: 0,
+            path: ["v3", "serp", "google", "organic", "task_get", "advanced"],
+            result: [
+              {
+                items: [
+                  {
+                    type: "organic",
+                    rank_group: 1,
+                    domain: "google.com",
+                    url: "https://google.com/goto?url=CAESabc",
+                    breadcrumb: "120.3K+ followers",
+                  },
+                  {
+                    type: "organic",
+                    rank_group: 2,
+                    domain: "google.com",
+                    url: "https://google.com/goto?url=CAESdef",
+                    breadcrumb:
+                      "https://www.example.com \u203a pages \u203a about",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const outcome = await fetchRankCheckTaskResult({
+      taskId: "task-b",
+      keywordId: "kw-2",
+      keyword: "beta",
+      targetDomain: "example.com",
+    });
+
+    expect(outcome).toEqual({
+      status: "completed",
+      result: {
+        keywordId: "kw-2",
+        keyword: "beta",
+        position: 2,
+        url: "https://www.example.com/pages/about",
+        serpFeatures: ["organic"],
+      },
+    });
+  });
 });

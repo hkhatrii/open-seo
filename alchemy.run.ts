@@ -357,7 +357,17 @@ export default Alchemy.Stack(
     // Optional custom hostname for a self-host stage (e.g. openseo.example.com
     // on a zone in the same account). The Access gate covers it before the
     // Worker's custom domain goes live; the workers.dev URL keeps working.
-    const selfhostDomain = prod ? "" : (yield* optionalVar("SELFHOST_DOMAIN")).trim();
+    const selfhostDomain = prod
+      ? ""
+      : (yield* optionalVar("SELFHOST_DOMAIN")).trim();
+    // Self-host on Workers Paid: opt in to explicit resource limits. Without
+    // them a rank check workflow instance stalls at ~50 outbound requests
+    // ("Too many subrequests"), which a 35-keyword x 2-device check exceeds.
+    // Leave unset on the free plan, which rejects configurable limits.
+    const selfhostPaidLimits =
+      !prod &&
+      (yield* optionalVar("SELFHOST_WORKERS_PAID")).trim().toLowerCase() ===
+        "true";
 
     const access = yield* resolveSelfHostAccess(
       stage,
@@ -455,9 +465,11 @@ export default Alchemy.Stack(
       // limits are a paid-plan feature, and self-host deploys
       // (cloudflare_access) may run on the free plan — which rejects them —
       // so those get the plan default instead.
-      ...(authMode === "cloudflare_access"
-        ? {}
-        : { limits: { cpuMs: 300_000 } }),
+      ...(authMode !== "cloudflare_access"
+        ? { limits: { cpuMs: 300_000 } }
+        : selfhostPaidLimits
+          ? { limits: { cpuMs: 300_000, subrequests: 10_000 } }
+          : {}),
       observability: {
         enabled: wrangler.observability?.enabled ?? true,
         traces: { enabled: wrangler.observability?.traces?.enabled ?? false },
